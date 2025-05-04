@@ -1,9 +1,12 @@
 ﻿using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using MyDub.Auth.Configure;
 using MyDub.Auth.Extensions;
 using MyDub.Auth.Helpers;
+using MyDub.Auth.Middlewares;
 
 namespace MyDub.Auth;
 
@@ -11,19 +14,34 @@ public class Startup(IConfiguration configuration)
 {
     public void ConfigureServices(IServiceCollection services)
     {
+        services
+            .AddControllers(options => { options.Filters.Add<HttpResponseExceptionFilter>(); })
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+            });
+
+
         services.Configure<JWTOptions>(configuration.GetSection(nameof(JWTOptions)));
         services.Configure<AuthOptions>(configuration.GetSection(nameof(AuthOptions)));
 
         services.AddControllers();
         services.AddEndpointsApiExplorer();
+        services.AddCors(
+            o => o
+                .AddPolicy("MyCors",
+                    policy => policy
+                        .AllowAnyOrigin()
+                        .AllowAnyHeader()
+                        .AllowAnyMethod()));
 
         services.AddSingleton<JWTHelper>();
-            
+
         services.AddDal(configuration);
-        
+
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
-        
+
         services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -46,8 +64,8 @@ public class Startup(IConfiguration configuration)
                         Encoding.UTF8.GetBytes(configuration.GetSection("JWTOptions:SecretKey").Value!))
                 };
             });
-            
-            services.AddAuthorization();
+
+        services.AddAuthorization();
     }
 
     public void Configure(
@@ -55,16 +73,15 @@ public class Startup(IConfiguration configuration)
         IApplicationBuilder app)
     {
         app.UseRouting();
-
+        app.UseHttpsRedirection();
+        app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.All });
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.UseSwagger();
         app.UseSwaggerUI();
-        
-        app.UseEndpoints(o =>
-        {
-            o.MapControllers();
-        });
+        app.UseCors("MyCors");
+
+        app.UseEndpoints(o => { o.MapControllers(); });
     }
 }
